@@ -32,6 +32,46 @@ jobs:
       - name: Fetch and verify the engine (Apple Silicon + Intel)
         run: bash scripts/fetch-engine.sh
 
+      - name: Prepare the signing certificate (prints no secret values)
+        env:
+          P12: ${{ secrets.MAC_CERT_P12_BASE64 }}
+          P12_PASS: ${{ secrets.MAC_CERT_PASSWORD }}
+        run: |
+          # Certificates exported on recent macOS use AES/PBKDF2 encryption that the
+          # runner's keychain tool may not read. Re-wrap it in the classic format with
+          # OpenSSL 3, which reads both and says plainly if the password is wrong.
+          OSSL="$(brew --prefix openssl@3 2>/dev/null)/bin/openssl"
+          [ -x "$OSSL" ] || { brew install openssl@3 >/dev/null; OSSL="$(brew --prefix openssl@3)/bin/openssl"; }
+          echo "$P12" | tr -d ' \n\r' | base64 -D > $RUNNER_TEMP/orig.p12 2>/dev/null || { echo "::error::MAC_CERT_P12_BASE64 is not valid base64"; exit 1; }
+          echo "Certificate file: $(wc -c < $RUNNER_TEMP/orig.p12) bytes"
+          if ! "$OSSL" pkcs12 -in $RUNNER_TEMP/orig.p12 -passin env:P12_PASS -nodes -out $RUNNER_TEMP/cert.pem 2>$RUNNER_TEMP/ossl.err; then
+            if grep -qi "mac verify\|bad decrypt\|invalid password" $RUNNER_TEMP/ossl.err; then
+              echo "::error::MAC_CERT_PASSWORD doesn't open this certificate. Re-enter the password you chose when exporting it."
+            else
+              echo "::error::The certificate file couldn't be read (it may have been cut off when pasting): $(head -c 200 $RUNNER_TEMP/ossl.err | tr '\n' ' ')"
+            fi
+            exit 1
+          fi
+          # The export can hold several identities (e.g. Apple Development too): keep
+          # only the Developer ID Application certificate and the key that matches it.
+          python3 - "$RUNNER_TEMP/cert.pem" "$RUNNER_TEMP/devid.pem" <<'PY'
+          import re, sys
+          text = open(sys.argv[1]).read()
+          blocks = re.findall(r"(Bag Attributes.*?-----END [A-Z ]+-----)", text, re.S)
+          kid = lambda b: (re.search(r"localKeyID:\s*([0-9A-F ]+)", b) or [None, None])[1]
+          cert = next((b for b in blocks if "BEGIN CERTIFICATE" in b and "Developer ID Application" in b), None)
+          if not cert:
+              sys.exit("no Developer ID Application certificate in the .p12")
+          key = next((b for b in blocks if "PRIVATE KEY" in b and kid(b) == kid(cert)), None)
+          if not key:
+              sys.exit("the Developer ID Application certificate's private key isn't in the .p12")
+          open(sys.argv[2], "w").write(key + "\n" + cert + "\n")
+          PY
+          "$OSSL" pkcs12 -export -legacy -in $RUNNER_TEMP/devid.pem -name "Developer ID Application" -passout env:P12_PASS -out $RUNNER_TEMP/cert.p12
+          rm -f $RUNNER_TEMP/devid.pem
+          rm -f $RUNNER_TEMP/orig.p12 $RUNNER_TEMP/cert.pem $RUNNER_TEMP/ossl.err
+          echo "Certificate ready."
+
       - name: Check secrets (prints no secret values)
         env:
           P12: ${{ secrets.MAC_CERT_P12_BASE64 }}
@@ -47,9 +87,8 @@ jobs:
           [ -z "$KEY_ID" ] && echo "::error::APPLE_API_KEY_ID missing"
           [ -z "$ISSUER" ] && echo "::error::APPLE_API_ISSUER missing"
           echo "$P8" | grep -q "BEGIN PRIVATE KEY" || echo "::error::APPLE_API_KEY_P8 does not look like a .p8 file (no BEGIN PRIVATE KEY line)"
-          echo "$P12" | tr -d ' \n\r' | base64 -D > /tmp/cert.p12 2>/dev/null || echo "::error::MAC_CERT_P12_BASE64 is not valid base64"
           security create-keychain -p tmp /tmp/check.keychain
-          if security import /tmp/cert.p12 -k /tmp/check.keychain -P "$P12_PASS" -A >/dev/null 2>&1; then
+          if security import $RUNNER_TEMP/cert.p12 -k /tmp/check.keychain -P "$P12_PASS" -A >/dev/null 2>&1; then
             echo "Certificate opened with the password."
             ids=$(security find-identity -v -p codesigning /tmp/check.keychain)
             echo "$ids"
@@ -57,7 +96,7 @@ jobs:
           else
             echo "::error::Could not open the .p12. Either MAC_CERT_PASSWORD is wrong, or the base64 got cut off when pasting."
           fi
-          security delete-keychain /tmp/check.keychain; rm -f /tmp/cert.p12
+          security delete-keychain /tmp/check.keychain
 
       - name: Save the App Store Connect API key for notarizing
         env:
@@ -74,7 +113,6 @@ jobs:
         run: |
           KC=$RUNNER_TEMP/build.keychain
           KC_PASS=$(uuidgen)
-          echo "$P12" | tr -d ' \n\r' | base64 -D > $RUNNER_TEMP/cert.p12
           security create-keychain -p "$KC_PASS" "$KC"
           security set-keychain-settings -lut 21600 "$KC"
           security unlock-keychain -p "$KC_PASS" "$KC"
