@@ -1,0 +1,45 @@
+appId: com.useboing.desktop
+productName: Boing
+copyright: Copyright © Boing Enterprises LLC
+directories:
+  buildResources: build
+  output: dist
+files:
+  - main.js
+  - offline.html
+  - package.json
+# The engine zip for the architecture being built (scripts/fetch-engine.sh puts
+# them in engine/arm64 and engine/x64). main.js unpacks it with ditto on launch.
+extraResources:
+  - from: engine/${arch}/Boing.zip
+    to: engine.zip
+protocols:
+  - name: Boing
+    schemes: [boing]
+mac:
+  category: public.app-category.music
+  icon: build/icon.icns
+  # Two builds, not one universal app: the bundled engine (Python + numpy) is
+  # built per architecture, so each build carries the matching engine.
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+    - target: zip
+      arch: [arm64, x64]
+  # The zips are what auto-update downloads; the dmgs are what people install first.
+  artifactName: Boing-${version}-${arch}-mac.${ext}
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  # Uses APPLE_API_KEY / APPLE_API_KEY_ID / APPLE_API_ISSUER from the build environment.
+  notarize: true
+  minimumSystemVersion: "11.0"
+dmg:
+  # Fixed names so useboing.com can always link to the latest download.
+  artifactName: Boing-${arch}.dmg
+  title: Boing
+publish:
+  provider: github
+  owner: olmosvip-oss
+  repo: boing-desktop

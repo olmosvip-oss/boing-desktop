@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<title>Boing</title>
+<style>
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: #0E0E11; color: #F5F4F2;
+    font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+    display: flex; align-items: center; justify-content: center; text-align: center;
+    -webkit-user-select: none; user-select: none;
+  }
+  .wrap { max-width: 380px; padding: 24px; }
+  .mark { width: 64px; height: 64px; border-radius: 16px; background: #E8853F; margin: 0 auto 28px; position: relative; }
+  .mark::after { content: ""; position: absolute; width: 12px; height: 12px; border-radius: 50%; background: #fff; left: 26px; top: 26px; }
+  h1 { font-size: 22px; font-weight: 600; margin: 0 0 8px; }
+  p { font-size: 14px; line-height: 1.5; color: #9A9AA2; margin: 0 0 28px; }
+  button {
+    font: inherit; font-size: 15px; font-weight: 600; cursor: pointer;
+    background: #E8853F; color: #0E0E11; border: 0; border-radius: 999px; padding: 12px 28px;
+  }
+  button:focus-visible { outline: 2px solid #F5F4F2; outline-offset: 3px; }
+</style>
+</head>
+<body>
+  <main class="wrap">
+    <div class="mark" aria-hidden="true"></div>
+    <h1>You're offline</h1>
+    <p>Boing needs an internet connection to sign in and load your specs. Your renders and files are safe on this Mac. Check your Wi-Fi and try again.</p>
+    <button id="retry" type="button">Try again</button>
+  </main>
+  <script>
+    const target = new URLSearchParams(location.search).get("retry") || "https://app.useboing.com";
+    const safe = /^https:\/\/([a-z0-9-]+\.)?useboing\.com(\/|$)/.test(target) ? target : "https://app.useboing.com";
+    const go = () => { location.href = safe; };
+    document.getElementById("retry").addEventListener("click", go);
+    window.addEventListener("online", go);
+  </script>
+</body>
+</html>
