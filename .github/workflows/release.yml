@@ -44,7 +44,7 @@ jobs:
           [ -x "$OSSL" ] || { brew install openssl@3 >/dev/null; OSSL="$(brew --prefix openssl@3)/bin/openssl"; }
           echo "$P12" | tr -d ' \n\r' | base64 -D > $RUNNER_TEMP/orig.p12 2>/dev/null || { echo "::error::MAC_CERT_P12_BASE64 is not valid base64"; exit 1; }
           echo "Certificate file: $(wc -c < $RUNNER_TEMP/orig.p12) bytes"
-          if ! "$OSSL" pkcs12 -in $RUNNER_TEMP/orig.p12 -passin env:P12_PASS -nodes -out $RUNNER_TEMP/cert.pem 2>$RUNNER_TEMP/ossl.err; then
+          if ! "$OSSL" pkcs12 -legacy -in $RUNNER_TEMP/orig.p12 -passin env:P12_PASS -nodes -out $RUNNER_TEMP/cert.pem 2>$RUNNER_TEMP/ossl.err; then
             if grep -qi "mac verify\|bad decrypt\|invalid password" $RUNNER_TEMP/ossl.err; then
               echo "::error::MAC_CERT_PASSWORD doesn't open this certificate. Re-enter the password you chose when exporting it."
             else
