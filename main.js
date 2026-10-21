@@ -17,6 +17,7 @@ const fs = require("fs");
 const APP_URL = "https://app.useboing.com";
 const SITE_URL = "https://useboing.com";
 const ENGINE_HEALTH = "http://127.0.0.1:8765/health";
+const ENGINE_STATUS = "http://127.0.0.1:8765/status";
 // Pages that stay inside the app window: Boing itself, sign-in, checkout, and the
 // Box / Dropbox connection screens. Everything else opens in the normal browser.
 const IN_APP_HOSTS = [
@@ -76,25 +77,75 @@ function engineUp() {
   });
 }
 
-/** Unpack this version's engine once, and drop engines left by older versions. */
+// Which engine.zip a folder was unpacked from. Keyed on the zip itself, not the
+// app version: a test build and a release can share a version number, and the
+// release must not keep running the test build's older engine.
+const stampFile = () => path.join(path.dirname(engineApp()), ".engine-stamp");
+function zipStamp() {
+  try {
+    const st = fs.statSync(engineZip());
+    return `${st.size}-${Math.round(st.mtimeMs)}`;
+  } catch {
+    return null;
+  }
+}
+function engineCurrent() {
+  try {
+    return (
+      fs.existsSync(path.join(engineApp(), "Contents", "MacOS")) &&
+      fs.readFileSync(stampFile(), "utf8") === zipStamp()
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** Unpack this build's engine once, and drop engines left by older builds. */
 function installEngine() {
   const target = engineApp();
-  if (fs.existsSync(path.join(target, "Contents", "MacOS"))) return target;
+  if (engineCurrent()) return target;
   if (!fs.existsSync(engineZip())) return null;
   const dir = path.dirname(target);
   fs.rmSync(dir, { recursive: true, force: true });
   fs.mkdirSync(dir, { recursive: true });
   const r = spawnSync("ditto", ["-x", "-k", engineZip(), dir], { stdio: "ignore" });
   if (r.status !== 0 || !fs.existsSync(target)) return null;
+  try { fs.writeFileSync(stampFile(), zipStamp() ?? ""); } catch { /* re-unpacks next launch */ }
   for (const old of fs.readdirSync(engineDir())) {
     if (old !== app.getVersion()) fs.rmSync(path.join(engineDir(), old), { recursive: true, force: true });
   }
   return target;
 }
 
+function engineBusy() {
+  return new Promise((resolve) => {
+    const req = http.get(ENGINE_STATUS, { timeout: 1500 }, (res) => {
+      let body = "";
+      res.on("data", (c) => (body += c));
+      res.on("end", () => {
+        try { resolve(JSON.parse(body).busy === true); } catch { resolve(false); }
+      });
+    });
+    req.on("error", () => resolve(false));
+    req.on("timeout", () => { req.destroy(); resolve(false); });
+  });
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 async function startEngine() {
   if (!app.isPackaged) return; // `npm start` uses whatever engine is already running
-  if (await engineUp()) return; // already running (e.g. an older standalone install)
+  if (await engineUp()) {
+    if (engineCurrent()) return;
+    // An engine is running but it isn't this build's. If it's an older copy
+    // this app unpacked, replace it -- otherwise the window talks to an engine
+    // that lacks newer features. Never mid-render, and never an engine this
+    // app didn't start (a standalone install keeps running untouched).
+    if (await engineBusy()) return;
+    spawnSync("pkill", ["-f", engineDir()], { stdio: "ignore" });
+    for (let i = 0; i < 20 && (await engineUp()); i++) await sleep(250);
+    if (await engineUp()) return;
+  }
   const engine = installEngine();
   if (!engine) {
     dialog.showMessageBox({
