@@ -1,7 +1,7 @@
 {
   "name": "boing-desktop",
   "productName": "Boing",
-  "version": "1.0.1",
+  "version": "1.0.0",
   "description": "Boing for Mac",
   "main": "main.js",
   "author": "Boing Enterprises LLC",
