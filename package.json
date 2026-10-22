@@ -1,7 +1,7 @@
 {
   "name": "boing-desktop",
   "productName": "Boing",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Boing for Mac",
   "main": "main.js",
   "author": "Boing Enterprises LLC",
@@ -16,7 +16,7 @@
     "electron-updater": "^6.8.9"
   },
   "devDependencies": {
-    "electron": "44.8.0",
+    "electron": "43.7.11",
     "electron-builder": "^26.15.3"
   }
 }
